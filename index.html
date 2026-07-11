@@ -188,6 +188,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-body);
 .pay-radio { width: 17px; height: 17px; border-radius: 50%; border: 2px solid var(--navy-border); flex-shrink: 0; transition: all .2s; }
 .pay-opt.active .pay-radio { border-color: var(--orange); background: var(--orange); box-shadow: 0 0 6px rgba(242,149,74,.5); }
 .pay-name { font-size: 13px; font-weight: 700; flex: 1; color: var(--navy-text); }
+.pay-sub  { display: block; font-size: 10px; font-weight: 500; color: var(--navy-muted); margin-top: 2px; }
 .pay-info-box { display: none; padding: 14px 16px; border-radius: 11px; background: var(--navy2); position: relative; margin-bottom: 10px; overflow: hidden; border: 1px solid var(--navy-border); }
 .pay-info-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--grad); }
 .pay-info-box.show { display: block; }
@@ -325,6 +326,10 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-body);
         <span id="ship-label">Shipping</span>
         <span id="ship-price" style="font-family:var(--font-mono);font-size:13px;">$8.00</span>
       </div>
+      <div class="ship-row" id="card-fee-row" style="display:none;">
+        <span>Card Processing (6%)</span>
+        <span id="card-fee-price" style="font-family:var(--font-mono);font-size:13px;">$0.00</span>
+      </div>
       <div class="total-row">
         <span class="tot-label">TOTAL</span>
         <span class="tot-price" id="tot-price">$0.00</span>
@@ -365,6 +370,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-body);
       <div class="pay-opt" onclick="selectPay('cashapp')" id="pay-cashapp"><div class="pay-radio"></div><div class="pay-name">CashApp</div></div>
       <div class="pay-opt" onclick="selectPay('venmo')"   id="pay-venmo">  <div class="pay-radio"></div><div class="pay-name">Venmo</div></div>
       <div class="pay-opt" onclick="selectPay('paypal')"  id="pay-paypal"> <div class="pay-radio"></div><div class="pay-name">PayPal</div></div>
+      <div class="pay-opt" onclick="selectPay('card')"    id="pay-card">   <div class="pay-radio"></div><div class="pay-name">Credit/Debit Card<span class="pay-sub">Klarna available &middot; 6% processing fee</span></div></div>
     </div>
 
     <div class="pay-info-box" id="pay-info-box">
@@ -413,10 +419,13 @@ const SUPA_KEY  = "sb_publishable_C0NjdsOt_lWHYuj1xuurYw_HgPRz3rF";
 const EMAIL_FN  = "/.netlify/functions/send-email"; // Postmark relay (replaces EmailJS)
 const SHIP_FEE  = 8.00; // overridden by shipCost from DB
 
+const CARD_FEE_PCT = 6; // % processing fee for card/Klarna orders
+
 const PAY_INFO = {
   cashapp: { handle: "$BoldResearch",     label: "CashApp", inst: "Open CashApp, tap Pay, and send the exact total to this handle." },
   venmo:   { handle: "@Bold-Research-14", label: "Venmo",   inst: "Open Venmo, search this username and send the exact total." },
   paypal:  { handle: "@BrunoM64",         label: "PayPal",  inst: "Send to this PayPal username. Select Friends & Family — do NOT use Goods & Services." },
+  card:    { handle: "Payment link — sent by email", label: "Credit/Debit Card", inst: "No payment is needed right now. After you place your order, you'll receive your order confirmation email, and a few minutes later a second email with a secure payment link. Click the link to pay by credit card, debit card, or Klarna through our trusted payment processor. A 6% processing fee is included in your total to cover payment processing costs." },
 };
 
 const CAT_DEFS = [
@@ -783,7 +792,14 @@ function renderOrder() {
   const freeShip = freeShipOn && discountedSubtotal >= freeShipThresh;
   const shippingFee = shipCost || SHIP_FEE;
   const actualShipCost = freeShip ? 0 : shippingFee;
-  const total    = discountedSubtotal + actualShipCost;
+  const cardFee  = selectedPay === "card" ? Math.round((discountedSubtotal + actualShipCost) * CARD_FEE_PCT) / 100 : 0;
+  const total    = discountedSubtotal + actualShipCost + cardFee;
+
+  const feeRow   = document.getElementById("card-fee-row");
+  if (feeRow) {
+    feeRow.style.display = cardFee > 0 ? "flex" : "none";
+    document.getElementById("card-fee-price").textContent = "$" + cardFee.toFixed(2);
+  }
 
   const discRow = document.getElementById("discount-row");
   if (discRow) {
@@ -861,10 +877,20 @@ function selectPay(method) {
   const info = PAY_INFO[method];
   const box  = document.getElementById("pay-info-box");
   box.classList.add("show");
-  document.getElementById("pay-info-label").textContent  = "Send " + info.label + " payment to";
+  document.getElementById("pay-info-label").textContent  = method === "card" ? "How it works" : "Send " + info.label + " payment to";
   document.getElementById("pay-info-handle").textContent = info.handle;
   document.getElementById("pay-info-inst").textContent   = info.inst;
+  const remTitle = document.querySelector("#order-reminder .order-reminder-title");
+  const remBody  = document.querySelector("#order-reminder .order-reminder-body");
+  if (method === "card") {
+    remTitle.textContent = "PAYMENT LINK — WHAT TO EXPECT";
+    remBody.innerHTML = "Your secure payment link arrives by email <strong>a few minutes after</strong> your order confirmation. If you don't see it, check spam or message us and we'll resend it.";
+  } else {
+    remTitle.textContent = "PAYMENT NOTE — IMPORTANT";
+    remBody.innerHTML = 'Your order number will be in your confirmation email. <strong>Please include it in your payment note</strong> so we can match and process your order quickly.';
+  }
   document.getElementById("order-reminder").classList.add("show");
+  renderOrder();
   updateSubmitBtn();
 }
 
@@ -920,7 +946,9 @@ async function submitOrder() {
   }
   const freeShip = freeShipOn && discountedSubtotal >= freeShipThresh;
   const shippingFee = shipCost || SHIP_FEE;
-  const total    = discountedSubtotal + (freeShip ? 0 : shippingFee);
+  const actualShipCost = freeShip ? 0 : shippingFee;
+  const cardFee  = selectedPay === "card" ? Math.round((discountedSubtotal + actualShipCost) * CARD_FEE_PCT) / 100 : 0;
+  const total    = discountedSubtotal + actualShipCost + cardFee;
   const orderNum = "SBP-" + Date.now().toString().slice(-6);
 
   document.getElementById("loading-overlay").classList.add("show");
@@ -954,11 +982,15 @@ async function submitOrder() {
       items_summary: itemsSummary,
       subtotal: "$" + subtotal.toFixed(2),
       discount: appliedPromo ? "-$" + discountAmt.toFixed(2) + " (" + appliedPromo.pct + "% off)" : "None",
-      shipping: freeShip ? "FREE" : "$8.00",
+      shipping: freeShip ? "FREE" : "$" + shippingFee.toFixed(2),
       total: "$" + total.toFixed(2),
-      payment_method: payInfo.label,
+      payment_method: selectedPay === "card" ? "Credit/Debit Card / Klarna" : payInfo.label,
       payment_handle: payInfo.handle,
-      payment_instructions: payInfo.inst + " IMPORTANT: Include your order number " + orderNum + " in your payment note.",
+      payment_instructions: selectedPay === "card"
+        ? payInfo.inst + " Your total includes a " + CARD_FEE_PCT + "% processing fee of $" + cardFee.toFixed(2) + ". Your order number is " + orderNum + "."
+        : payInfo.inst + " IMPORTANT: Include your order number " + orderNum + " in your payment note.",
+      card_payment: selectedPay === "card",
+      processing_fee: selectedPay === "card" ? "$" + cardFee.toFixed(2) + " (" + CARD_FEE_PCT + "%)" : "None",
       order_date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       notes: notes || "None"
     };
@@ -978,6 +1010,9 @@ async function submitOrder() {
     document.getElementById("main-layout").style.display = "none";
     document.getElementById("cart-bar").classList.remove("show");
     document.getElementById("success-num").textContent = "Order " + orderNum;
+    document.querySelector(".success-sub").textContent = selectedPay === "card"
+      ? "Thank you! Your order has been submitted. Watch your inbox — your confirmation email is on the way, and a secure payment link will follow a few minutes later. Once payment is complete we'll send tracking as soon as your order ships."
+      : "Thank you! Your order has been submitted. We'll confirm your payment and send tracking information as soon as your order ships.";
     document.getElementById("success-screen").classList.add("show");
     window.scrollTo(0, 0);
 
@@ -995,6 +1030,8 @@ function resetForm() {
   ["f-name","f-email","f-addr1","f-addr2","f-city","f-state","f-zip","f-notes"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("pay-info-box").classList.remove("show");
   document.getElementById("order-reminder").classList.remove("show");
+  const feeRowReset = document.getElementById("card-fee-row");
+  if (feeRowReset) feeRowReset.style.display = "none";
   document.getElementById("ret-msg").style.display = "none";
   document.getElementById("err-msg").style.display = "none";
   document.querySelectorAll(".pay-opt").forEach(el => el.classList.remove("active"));
