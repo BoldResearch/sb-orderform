@@ -1106,10 +1106,11 @@ function isValidEmailFront(email) {
   border-radius:999px; background:var(--pc-grad); color:var(--pc-on-accent);
   font-family:var(--pc-font-disp); font-weight:700; font-size:13px;
   letter-spacing:.02em; box-shadow:0 8px 26px rgba(0,0,0,.42);
-  transition:transform .18s, box-shadow .18s;
+  transition:transform .18s, box-shadow .18s, bottom .28s ease;
 }
 #pc-fab:hover{ transform:translateY(-2px); box-shadow:0 12px 32px rgba(0,0,0,.5); }
 #pc-fab:active{ transform:translateY(0); }
+#pc-fab.pc-fab--raised{ bottom:92px; }   /* lifts clear of the site cart bar when it appears */
 #pc-fab svg{ width:18px; height:18px; }
 @media(max-width:560px){ #pc-fab span{ display:none; } #pc-fab{ padding:14px; } }
 
@@ -1662,9 +1663,25 @@ function isValidEmailFront(email) {
   function warn(msg){ return '<div class="pc-hint" style="color:var(--pc-danger);margin-top:8px;">'+msg+'</div>'; }
   function note(msg){ return '<div class="pc-hint" style="margin-top:8px;">'+msg+'</div>'; }
 
+  // Keep the floating button clear of the site's bottom cart bar when it shows.
+  function watchCartBar(){
+    var bar = document.querySelector(".cart-bar, #cart-bar");
+    if(!bar) return;
+    var fab = $("pc-fab");
+    var sync = function(){
+      var r = bar.getBoundingClientRect();
+      var onScreen = r.height > 0 && r.top < (window.innerHeight - 4);
+      fab.classList.toggle("pc-fab--raised", onScreen);
+    };
+    sync();
+    new MutationObserver(sync).observe(bar, { attributes:true, attributeFilter:["class","style"] });
+    window.addEventListener("resize", sync);
+  }
+
   document.addEventListener("keydown", function(e){ if(e.key === "Escape") PepCalc.close(); });
 
   setMode(false);
+  watchCartBar();
   loadCatalog();
   window.PepCalc = PepCalc;
 })();
